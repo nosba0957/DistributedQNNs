@@ -2,14 +2,24 @@
 The paper of "Distributed quantum neural networks via partitioned features encoding" can be read at [Quantum Machine Intelligence](https://rdcu.be/dAVb9). Here, we put the codes used in the paper. 
 
 ## Examples
-In this repository, 
-we put the jupyter notebooks used in our numerical experiments. 
+All experiments used in our numerical experiments run from `dqnn.py`:
 
-- mnist28x28_14qnn20_c4.75.py: classifying MNIST data set (28x28) with 14 QNNs
-- semeion16x16_4qnn20+c10.py: classifying Semeion data set (16x16) with 4 qnns
-- semeion16x16_8qnn20+c5.py: classifying Semeion data set (16x16) with 8 qnns
-- semeion8x8_2qnn20+c20.py: classifying reduced sized  Semeion data set (8x8) with 2 qnns
-- semeion8x8_qnn20+c35.py: classifying reduced sized  Semeion data set (8x8) 1 qnn
+```
+# torchquantum 0.1.8 needs these older Qiskit pins to import
+pip install torch torchvision scikit-learn torchquantum "qiskit==0.44.*" "qiskit-aer<0.13" "qiskit_ibm_runtime<0.21" "setuptools<81"
+python dqnn.py                                  # run every experiment
+python dqnn.py semeion16x16_4qnn --n-qubits 5   # one experiment, 5 qubits per QNN
+python dqnn.py --help
+```
+
+- mnist28x28_14qnn: classifying MNIST data set (28x28) with 14 QNNs
+- semeion16x16_4qnn: classifying Semeion data set (16x16) with 4 qnns
+- semeion16x16_8qnn: classifying Semeion data set (16x16) with 8 qnns
+- semeion8x8_2qnn: classifying reduced sized  Semeion data set (8x8) with 2 qnns
+- semeion8x8_1qnn: classifying reduced sized  Semeion data set (8x8) 1 qnn
+
+The QNN counts above are for the default 8 qubits (7 for MNIST). With `--n-qubits`,
+each QNN takes `2 * n_qubits * (n_block - 1)` features and the number of QNNs follows.
 ## Citation
 If you find this repository useful for your research, please consider citing our work:
 ```
