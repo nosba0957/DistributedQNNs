@@ -5,11 +5,11 @@ The paper of "Distributed quantum neural networks via partitioned features encod
 In this repository, 
 we put the jupyter notebooks used in our numerical experiments. 
 
-- mnist28x28_14qnn20_c4.75.ipynb: classifying MNIST data set (28x28) with 14 QNNs
-- semeion16x16_4qnn20+c10.ipynb: classifying Semeion data set (16x16) with 4 qnns
-- semeion16x16_8qnn20+c5.ipynb: classifying Semeion data set (16x16) with 8 qnns
-- semeion8x8_2qnn20+c20.ipynb: classifying reduced sized  Semeion data set (8x8) with 2 qnns
-- semeion8x8_qnn20+c35.ipynb: classifying reduced sized  Semeion data set (8x8) 1 qnn
+- mnist28x28_14qnn20_c4.75.py: classifying MNIST data set (28x28) with 14 QNNs
+- semeion16x16_4qnn20+c10.py: classifying Semeion data set (16x16) with 4 qnns
+- semeion16x16_8qnn20+c5.py: classifying Semeion data set (16x16) with 8 qnns
+- semeion8x8_2qnn20+c20.py: classifying reduced sized  Semeion data set (8x8) with 2 qnns
+- semeion8x8_qnn20+c35.py: classifying reduced sized  Semeion data set (8x8) 1 qnn
 ## Citation
 If you find this repository useful for your research, please consider citing our work:
 ```
