@@ -1,0 +1,29 @@
+[project]
+name = "distributed-qnns"
+version = "0.1.0"
+requires-python = "==3.10.*"
+dependencies = [
+    "torch",
+    "torchvision",
+    "scikit-learn",
+    "torchquantum==0.1.8",
+    # torchquantum 0.1.8 only imports with these older Qiskit pins (aer 0.12.0: last with aarch64 wheels)
+    "qiskit==0.44.3",
+    "qiskit-aer==0.12.0",
+    "qiskit-ibm-runtime==0.17.0",
+    "setuptools<81",
+]
+
+[tool.uv]
+environments = ["sys_platform == 'linux'"]
+required-environments = ["sys_platform == 'linux' and platform_machine == 'aarch64'"]
+
+# CUDA 12.6 wheels: the lab driver (535, CUDA 12.2) is too old for the default CUDA 13 torch
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu126" }
+torchvision = { index = "pytorch-cu126" }

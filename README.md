@@ -5,11 +5,10 @@ The paper of "Distributed quantum neural networks via partitioned features encod
 All experiments used in our numerical experiments run from `dqnn.py`:
 
 ```
-# torchquantum 0.1.8 needs these older Qiskit pins to import
-pip install torch torchvision scikit-learn torchquantum "qiskit==0.44.*" "qiskit-aer<0.13" "qiskit_ibm_runtime<0.21" "setuptools<81"
-python dqnn.py                                  # run every experiment
-python dqnn.py semeion16x16_4qnn --n-qubits 5   # one experiment, 5 qubits per QNN
-python dqnn.py --help
+uv sync                                                # own .venv, pinned in pyproject.toml
+uv run python dqnn.py                                  # run every experiment
+uv run python dqnn.py semeion16x16_4qnn --n-qubits 5   # one experiment, 5 qubits per QNN
+uv run python dqnn.py --help
 ```
 
 - mnist28x28_14qnn: classifying MNIST data set (28x28) with 14 QNNs
