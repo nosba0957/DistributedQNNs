@@ -2,13 +2,16 @@
 
     python dqnn.py                                  # run every experiment
     python dqnn.py semeion16x16_4qnn --n-qubits 5   # one experiment on 5 qubits
+    python dqnn.py semeion8x8_2qnn --n-qubits 5 --depth 2 --linear-cz --save models/   # QPU-sized, for dqnn_qpu.py
 
 Each QNN encodes 2*n_qubits*(n_block-1) features, so the number of QNNs is
 derived from --n-qubits; the feature vector is zero-padded (RX/RY(0) = identity)
 when it does not split evenly. Preset names give the default-qubit layout.
 """
 import argparse
+import json
 import math
+import os
 import warnings
 
 import numpy as np
@@ -43,9 +46,10 @@ class ConstCoeffLayer(nn.Module):
 
 
 class QNNsubModel(nn.Module):
-    def __init__(self, n_wires, n_block, n_depth_per_block=20):
+    def __init__(self, n_wires, n_block, n_depth_per_block=20, linear=False):
         super().__init__()
         self.n_wires = n_wires
+        self.linear = linear  # CZ chain without the (n-1, 0) wraparound, to match a linear chip
         self.encoder_gates_x = ([tq.functional.rx] * n_wires + [tq.functional.ry] * n_wires)*(n_block-1)
         self.n_block = n_block
         self.n_depth_per_block = n_depth_per_block
@@ -65,13 +69,13 @@ class QNNsubModel(nn.Module):
                 for j in range(2*d*n_depth_per_block+2*k,2*d*n_depth_per_block+2*k+2):
                     for i in range(self.n_wires):
                         self.u_layers[i+j*self.n_wires](qdev, wires=i)
-                for i in range(self.n_wires):
+                for i in range(self.n_wires - self.linear):
                     qdev.cz(wires=[i,(i+1)%self.n_wires])
             # data encoding
             for j in range(2*d,2*d+2):
                 for k in range(self.n_wires):
                     self.encoder_gates_x[k+j*self.n_wires](qdev, wires=k, params=x[:, (k+j*self.n_wires)])
-            for i in range(self.n_wires):
+            for i in range(self.n_wires - self.linear):
                 qdev.cz(wires=[i,(i+1)%self.n_wires])
         d = self.n_block-1
         for k in range(n_depth_per_block):
@@ -80,7 +84,7 @@ class QNNsubModel(nn.Module):
                     self.u_layers[i+j*self.n_wires](qdev, wires=i)
             if k==n_depth_per_block-1:
                 break
-            for i in range(self.n_wires):
+            for i in range(self.n_wires - self.linear):
                 qdev.cz(wires=[i,(i+1)%self.n_wires])
 
         obs_list = [ expval_joint_analytical(qdev, "I"*i+Pauli+"I"*(self.n_wires-1-i)) for Pauli in ["X","Z"] for i in range(N_CLASS//2)]
@@ -89,9 +93,9 @@ class QNNsubModel(nn.Module):
 
 class QNNModel(nn.Module):
     """Splits the features into equal chunks, one QNN per chunk, and sums their outputs."""
-    def __init__(self, n_qnn, n_wires, n_block):
+    def __init__(self, n_qnn, n_wires, n_block, depth=20, linear=False):
         super().__init__()
-        self.qnns = nn.ModuleList(QNNsubModel(n_wires, n_block) for _ in range(n_qnn))
+        self.qnns = nn.ModuleList(QNNsubModel(n_wires, n_block, depth, linear) for _ in range(n_qnn))
     def forward(self, x):
         return sum(qnn(chunk) for qnn, chunk in zip(self.qnns, x.chunk(len(self.qnns), dim=1)))
 
@@ -132,7 +136,12 @@ def valid(data, label, model):
     return loss.item(), acc
 
 
-def run(name, cfg, n_qubits, epochs):
+def weights(model):
+    """Trainable angles, (n_qnn, n_params), in u_layers order: what dqnn_qpu.py rebuilds circuits from."""
+    return np.stack([[g.params.item() for g in qnn.u_layers] for qnn in model[0].qnns])
+
+
+def run(name, cfg, n_qubits, epochs, depth=20, linear=False, save=None):
     np.random.seed(SEED)
     torch.manual_seed(SEED)
     (data, label), test = load(cfg)
@@ -141,9 +150,14 @@ def run(name, cfg, n_qubits, epochs):
     pad = n_qnn*per_qnn - data.shape[1]
     print(f"== {name}: {data.shape[1]} features -> {n_qnn} QNNs x {n_qubits} qubits ({per_qnn} features each, {pad} zero-padded)")
     pad_fn = lambda x: nn.functional.pad(x, (0, pad)).to(device)
+    saved = {}  # fold k -> (test indices, weights, raw QNN-sum outputs on the test set)
+
+    def keep(k, model, test_idx, x_te):
+        with torch.no_grad():
+            saved[k] = (test_idx, weights(model), model[0](x_te).cpu().numpy())
 
     def new_model():
-        model = nn.Sequential(QNNModel(n_qnn, n_qubits, cfg['block']), ConstCoeffLayer(cfg['c']), nn.Softmax(dim=1)).to(device)
+        model = nn.Sequential(QNNModel(n_qnn, n_qubits, cfg['block'], depth, linear), ConstCoeffLayer(cfg['c']), nn.Softmax(dim=1)).to(device)
         return model, Adam(model.parameters(), lr=LR, weight_decay=5e-5)
 
     if test is not None:  # fixed train/test split, 50 stratified minibatches per epoch
@@ -156,6 +170,9 @@ def run(name, cfg, n_qubits, epochs):
                 print()
             loss_valid, acc_valid = valid(data_te, label_te, model)
         print(f"train acc: {acc_tr}, test acc: {acc_valid}, train loss: {loss_tr}, valid loss: {loss_valid}")
+        if save:
+            keep(0, model, np.arange(len(test[1])), data_te)
+            write(save, name, cfg, n_qubits, depth, linear, n_qnn, per_qnn, test[0], test[1], saved)
         return
 
     results = []  # final (train acc, valid acc, train loss, valid loss) per fold
@@ -167,12 +184,31 @@ def run(name, cfg, n_qubits, epochs):
             loss_tr, acc_tr = train(data_tr, label_tr, model, optimizer)
             loss_valid, acc_valid = valid(data_te, label_te, model)
         results.append((acc_tr, acc_valid, loss_tr, loss_valid))
+        if save:
+            keep(i_fold, model, te, data_te)
         print(f"train acc: {acc_tr}, test acc: {acc_valid}, train loss: {loss_tr}, valid loss: {loss_valid}")
     results = np.array(results)
     print("mean train/valid acc:", results[:, 0].mean(), results[:, 1].mean())
     print("std  train/valid acc:", results[:, 0].std(), results[:, 1].std())
     print("mean train/valid loss:", results[:, 2].mean(), results[:, 3].mean())
     print("std  train/valid loss:", results[:, 2].std(), results[:, 3].std())
+    if save:
+        write(save, name, cfg, n_qubits, depth, linear, n_qnn, per_qnn, data, label, saved)
+
+
+def write(save_dir, name, cfg, n_qubits, depth, linear, n_qnn, per_qnn, x, y, saved):
+    """One .npz per run: config, padded angles x (rows indexed by test_idx_k), labels, and per fold
+    the trained weights plus the simulator's raw outputs, which dqnn_qpu.py checks its circuits against."""
+    os.makedirs(save_dir, exist_ok=True)
+    path = os.path.join(save_dir, f"{name}_q{n_qubits}_d{depth}{'_lin' if linear else ''}.npz")
+    config = dict(name=name, n_qubits=n_qubits, n_block=cfg['block'], depth=depth, linear=linear,
+                  c=cfg['c'], n_qnn=n_qnn, per_qnn=per_qnn, n_class=N_CLASS)
+    arrays = {}
+    for k, (idx, w, out) in saved.items():
+        arrays.update({f'test_idx_{k}': idx, f'weights_{k}': w, f'sim_out_{k}': out})
+    np.savez(path, config=json.dumps(config), x=nn.functional.pad(x, (0, n_qnn*per_qnn - x.shape[1])).numpy(),
+             y=np.asarray(y), **arrays)
+    print(f"saved {path}")
 
 
 if __name__ == '__main__':
@@ -181,6 +217,9 @@ if __name__ == '__main__':
     p.add_argument('experiments', nargs='*', help=f"run in order, default all: {', '.join(PRESETS)}")
     p.add_argument('--n-qubits', type=int, help='qubits per QNN (default: 8, or 7 for MNIST)')
     p.add_argument('--epochs', type=int, help='override the preset epoch count')
+    p.add_argument('--depth', type=int, default=20, help='trainable layers per block (default 20, as in the paper)')
+    p.add_argument('--linear-cz', action='store_true', help='CZ chain without the ring wraparound, for a linear chip')
+    p.add_argument('--save', metavar='DIR', help='write trained weights + test data per experiment to DIR/*.npz')
     args = p.parse_args()
     args.experiments = args.experiments or list(PRESETS)
     if unknown := [e for e in args.experiments if e not in PRESETS]:
@@ -191,4 +230,4 @@ if __name__ == '__main__':
     torch.set_default_dtype(torch.float32)
     for name in args.experiments:
         cfg = PRESETS[name]
-        run(name, cfg, args.n_qubits or cfg['qubits'], args.epochs or cfg['epochs'])
+        run(name, cfg, args.n_qubits or cfg['qubits'], args.epochs or cfg['epochs'], args.depth, args.linear_cz, args.save)
